@@ -2,7 +2,7 @@
 
 source "https://rubygems.org"
 
-# Specify your gem's dependencies in red_faucet.gemspec
+# Specify your gem's dependencies in red_faucet_.gemspec
 gemspec
 
 gem "irb"
