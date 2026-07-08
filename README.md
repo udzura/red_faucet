@@ -113,22 +113,62 @@ RedFaucet.config.output_dir = "/path/to/traces"
 
 ### Example
 
-See [`examples/order_demo.rb`](examples/order_demo.rb) for a runnable,
-self-contained example:
+[`examples/order_demo.rb`](examples/order_demo.rb) is a runnable,
+self-contained example. It defines a small `Order`/`Pricing`/`Receipt` set of
+classes:
+
+```ruby
+class Order
+  def total
+    @items.sum { |item| Pricing.price_for(item) }
+  end
+
+  def checkout
+    amount = total
+    Receipt.new(amount).print
+    amount
+  end
+end
+
+module Pricing
+  def self.price_for(item) = PRICES.fetch(item, 0)
+end
+
+class Receipt
+  def print = puts "Total: #{@amount} yen"
+end
+```
+
+traces a mix of instance and module methods, and wraps the call in
+`RedFaucet.open`:
+
+```ruby
+RedFaucet.trace_method(Order.instance_method(:total))
+RedFaucet.trace_method(Order.instance_method(:checkout))
+RedFaucet.trace_method(Pricing.method(:price_for))
+RedFaucet.trace_method(Receipt.instance_method(:print))
+
+path = RedFaucet.open do
+  Order.new(%w[coffee cake tea coffee]).checkout
+end
+```
+
+Run it with:
 
 ```bash
 bundle exec ruby -Ilib examples/order_demo.rb
 ```
 
-It defines a small `Order`/`Pricing`/`Receipt` set of classes, traces a mix
-of instance and module methods, and pretty-prints the resulting OTLP/JSON
-document. A sample of that output is checked in at
-[`examples/trace-example.json`](examples/trace-example.json), and
-[`examples/jaeger-screenshot.png`](examples/jaeger-screenshot.png) shows it
-visualized in Jaeger (all-in-one) after importing the JSON as an OTLP trace —
-the span tree (`red_faucet session` → `tid=...` → `Order#checkout` →
-`Order#total` → `Pricing.price_for` ×4, plus `Receipt#print`) matches the
-call graph in the example code exactly.
+This prints the OTLP/JSON file path and pretty-prints its contents. A sample
+of that output is checked in at
+[`examples/trace-example.json`](examples/trace-example.json).
+
+Importing that JSON into Jaeger (all-in-one) as an OTLP trace renders the
+following span tree, which matches the example's call graph exactly —
+`red_faucet session` → `tid=...` → `Order#checkout` → `Order#total` →
+`Pricing.price_for` ×4, plus `Receipt#print`:
+
+![Example trace visualized in Jaeger](examples/jaeger-screenshot.png)
 
 ## Development
 
