@@ -111,6 +111,25 @@ Output location is configurable:
 RedFaucet.config.output_dir = "/path/to/traces"
 ```
 
+### Example
+
+See [`examples/order_demo.rb`](examples/order_demo.rb) for a runnable,
+self-contained example:
+
+```bash
+bundle exec ruby -Ilib examples/order_demo.rb
+```
+
+It defines a small `Order`/`Pricing`/`Receipt` set of classes, traces a mix
+of instance and module methods, and pretty-prints the resulting OTLP/JSON
+document. A sample of that output is checked in at
+[`examples/trace-example.json`](examples/trace-example.json), and
+[`examples/jaeger-screenshot.png`](examples/jaeger-screenshot.png) shows it
+visualized in Jaeger (all-in-one) after importing the JSON as an OTLP trace —
+the span tree (`red_faucet session` → `tid=...` → `Order#checkout` →
+`Order#total` → `Pricing.price_for` ×4, plus `Receipt#print`) matches the
+call graph in the example code exactly.
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then,
