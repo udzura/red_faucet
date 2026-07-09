@@ -46,16 +46,16 @@ class Sample
   end
 end
 
-class RedFaucetTest < Test::Unit::TestCase
+class OrangeTapTest < Test::Unit::TestCase
   def setup
     Sample.reset_calls!
-    RedFaucet.default_registry.unregister(Sample.instance_method(:instance_method_a))
-    RedFaucet.default_registry.unregister(Sample.instance_method(:not_traced_method))
-    RedFaucet.default_registry.unregister(Sample.method(:class_method_b))
-    RedFaucet.default_registry.unregister(Sample.instance_method(:recursive))
-    RedFaucet.default_registry.unregister(Sample.instance_method(:blocking))
-    @tmpdir = Dir.mktmpdir("red_faucet_test")
-    RedFaucet.config.output_dir = @tmpdir
+    OrangeTap.default_registry.unregister(Sample.instance_method(:instance_method_a))
+    OrangeTap.default_registry.unregister(Sample.instance_method(:not_traced_method))
+    OrangeTap.default_registry.unregister(Sample.method(:class_method_b))
+    OrangeTap.default_registry.unregister(Sample.instance_method(:recursive))
+    OrangeTap.default_registry.unregister(Sample.instance_method(:blocking))
+    @tmpdir = Dir.mktmpdir("orange_tap_test")
+    OrangeTap.config.output_dir = @tmpdir
   end
 
   def teardown
@@ -74,14 +74,14 @@ class RedFaucetTest < Test::Unit::TestCase
 
   test "VERSION" do
     assert do
-      ::RedFaucet.const_defined?(:VERSION)
+      ::OrangeTap.const_defined?(:VERSION)
     end
   end
 
   test "captures calls to a registered instance method" do
-    RedFaucet.trace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
 
-    path = RedFaucet.open { Sample.new.instance_method_a }
+    path = OrangeTap.open { Sample.new.instance_method_a }
     document = read_document(path)
     names = all_spans(document).map { |s| s["name"] }
 
@@ -89,9 +89,9 @@ class RedFaucetTest < Test::Unit::TestCase
   end
 
   test "captures class (singleton) method calls" do
-    RedFaucet.trace_method(Sample.method(:class_method_b))
+    OrangeTap.trace_method(Sample.method(:class_method_b))
 
-    path = RedFaucet.open { Sample.class_method_b }
+    path = OrangeTap.open { Sample.class_method_b }
     names = all_spans(read_document(path)).map { |s| s["name"] }
 
     assert_include(names, "Sample.class_method_b")
@@ -102,20 +102,20 @@ class RedFaucetTest < Test::Unit::TestCase
     def obj.greet
       "hi"
     end
-    RedFaucet.trace_method(obj.method(:greet))
+    OrangeTap.trace_method(obj.method(:greet))
 
-    path = RedFaucet.open { obj.greet }
+    path = OrangeTap.open { obj.greet }
     names = all_spans(read_document(path)).map { |s| s["name"] }
 
     assert(names.any? { |n| n.end_with?(".greet") })
   ensure
-    RedFaucet.default_registry.unregister(obj.method(:greet)) if obj
+    OrangeTap.default_registry.unregister(obj.method(:greet)) if obj
   end
 
   test "does not capture unregistered methods" do
-    RedFaucet.trace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
 
-    path = RedFaucet.open do
+    path = OrangeTap.open do
       sample = Sample.new
       sample.instance_method_a
       sample.not_traced_method
@@ -127,9 +127,9 @@ class RedFaucetTest < Test::Unit::TestCase
   end
 
   test "open returns a path to a valid OTLP JSON document" do
-    RedFaucet.trace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
 
-    path = RedFaucet.open { Sample.new.instance_method_a }
+    path = OrangeTap.open { Sample.new.instance_method_a }
 
     assert_kind_of(String, path)
     assert(File.exist?(path))
@@ -141,38 +141,38 @@ class RedFaucetTest < Test::Unit::TestCase
   end
 
   test "double open raises AlreadyOpenError" do
-    tape = RedFaucet.new
+    tape = OrangeTap.new
     tape.open
-    assert_raise(RedFaucet::AlreadyOpenError) { tape.open }
+    assert_raise(OrangeTap::AlreadyOpenError) { tape.open }
   ensure
     tape.stop
   end
 
   test "stop without open raises NotOpenError" do
-    tape = RedFaucet.new
-    assert_raise(RedFaucet::NotOpenError) { tape.stop }
+    tape = OrangeTap.new
+    assert_raise(OrangeTap::NotOpenError) { tape.stop }
   end
 
   test "TracePoints are disabled even when the block raises" do
-    RedFaucet.trace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
 
     assert_raise(RuntimeError) do
-      RedFaucet.open do
+      OrangeTap.open do
         Sample.new.instance_method_a
         raise "boom"
       end
     end
 
     # A subsequent, unrelated call must not be captured by leftover hooks.
-    path = RedFaucet.open { Sample.new.instance_method_a }
+    path = OrangeTap.open { Sample.new.instance_method_a }
     names = all_spans(read_document(path)).map { |s| s["name"] }
     assert_equal(1, names.count("Sample#instance_method_a"))
   end
 
   test "nested recursive calls produce correctly nested spans" do
-    RedFaucet.trace_method(Sample.instance_method(:recursive))
+    OrangeTap.trace_method(Sample.instance_method(:recursive))
 
-    path = RedFaucet.open { Sample.new.recursive(2) }
+    path = OrangeTap.open { Sample.new.recursive(2) }
     spans = all_spans(read_document(path)).select { |s| s["name"] == "Sample#recursive" }
 
     assert_equal(3, spans.size)
@@ -184,12 +184,12 @@ class RedFaucetTest < Test::Unit::TestCase
   end
 
   test "dangling calls without a matching return are marked incomplete" do
-    RedFaucet.trace_method(Sample.instance_method(:blocking))
+    OrangeTap.trace_method(Sample.instance_method(:blocking))
 
     entered = Queue.new
     release = Queue.new
     obj = Sample.new
-    tape = RedFaucet.new
+    tape = OrangeTap.new
     tape.open
     caller_thread = Thread.new { obj.blocking(entered, release) }
     entered.pop
@@ -199,16 +199,16 @@ class RedFaucetTest < Test::Unit::TestCase
 
     spans = all_spans(read_document(path)).select { |s| s["name"] == "Sample#blocking" }
     assert_equal(1, spans.size)
-    incomplete_attr = spans.first["attributes"].find { |a| a["key"] == "red_faucet.incomplete" }
+    incomplete_attr = spans.first["attributes"].find { |a| a["key"] == "orange_tap.incomplete" }
     refute_nil(incomplete_attr)
     assert_equal(true, incomplete_attr["value"]["boolValue"])
   end
 
   test "concurrent sessions do not interfere with each other" do
-    RedFaucet.trace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
 
-    tape_a = RedFaucet.new
-    tape_b = RedFaucet.new
+    tape_a = OrangeTap.new
+    tape_b = OrangeTap.new
     tape_a.open
     tape_b.open
     Sample.new.instance_method_a
@@ -224,22 +224,22 @@ class RedFaucetTest < Test::Unit::TestCase
   end
 
   test "trace_method rejects non-Method/UnboundMethod arguments" do
-    assert_raise(ArgumentError) { RedFaucet.trace_method(:not_a_method) }
+    assert_raise(ArgumentError) { OrangeTap.trace_method(:not_a_method) }
   end
 
   test "trace_method rejects methods without an ISeq" do
-    assert_raise(RedFaucet::UntraceableMethodError) do
-      RedFaucet.trace_method(String.instance_method(:upcase))
+    assert_raise(OrangeTap::UntraceableMethodError) do
+      OrangeTap.trace_method(String.instance_method(:upcase))
     end
   end
 
   test "untrace_method identifies methods by owner+name, not object identity" do
-    RedFaucet.trace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
     # A freshly obtained Method/UnboundMethod object for the same method
     # must still be able to unregister the earlier registration.
-    RedFaucet.untrace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.untrace_method(Sample.instance_method(:instance_method_a))
 
-    path = RedFaucet.open { Sample.new.instance_method_a }
+    path = OrangeTap.open { Sample.new.instance_method_a }
     names = all_spans(read_document(path)).map { |s| s["name"] }
     assert_not_include(names, "Sample#instance_method_a")
   end

@@ -1,15 +1,15 @@
 # frozen_string_literal: true
 
-require_relative "red_faucet/version"
-require_relative "red_faucet/event"
-require_relative "red_faucet/pending_span"
-require_relative "red_faucet/otel_converter"
-require_relative "red_faucet/config"
-require_relative "red_faucet/method_registry"
-require_relative "red_faucet/worker"
-require_relative "red_faucet/session"
+require_relative "orange_tap/version"
+require_relative "orange_tap/event"
+require_relative "orange_tap/pending_span"
+require_relative "orange_tap/otel_converter"
+require_relative "orange_tap/config"
+require_relative "orange_tap/method_registry"
+require_relative "orange_tap/worker"
+require_relative "orange_tap/session"
 
-module RedFaucet
+module OrangeTap
   class Error < StandardError; end
   class AlreadyOpenError < Error; end
   class NotOpenError < Error; end
@@ -17,8 +17,8 @@ module RedFaucet
 
   module_function
 
-  # RedFaucet.new -> Session, so `tape = RedFaucet.new; tape.open; ...; tape.stop`
-  # reads like constructing a recorder, while RedFaucet itself stays a module.
+  # OrangeTap.new -> Session, so `tape = OrangeTap.new; tape.open; ...; tape.stop`
+  # reads like constructing a recorder, while OrangeTap itself stays a module.
   def new(**opts)
     Session.new(**opts)
   end

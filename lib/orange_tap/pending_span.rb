@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module RedFaucet
+module OrangeTap
   # Mutable, in-progress span assembled by Worker while draining the queue.
   # Timestamps are kept in monotonic ns; OtelConverter is responsible for
   # anchoring them to wall-clock unix ns at output time.

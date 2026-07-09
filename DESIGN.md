@@ -1,4 +1,4 @@
-# Ruby メソッドトレーシング Gem "RedFaucet" 実装プラン
+# Ruby メソッドトレーシング Gem "OrangeTap" 実装プラン
 
 ## 1. 目的
 
@@ -27,12 +27,12 @@ OpenTelemetry(OTel) 形式の JSON ファイルとして出力する Pure Ruby g
      変換器ではなく、**BPF イベントストリーム全体 + meta を受け取り、Span 組み立て（CALL/RETURN
      スタック管理）を内部でやり直す**構造で、`ev.ktime_ns / ev.tid / ev.trace_hi` や
      `Vivarium.synth_span_id`、BPF ペイロードのバイナリデコード等に密結合している。
-     RedFaucet の Worker と役割が重複し、そのままでは呼び出せない。
-   - よって **OTLP/JSON の出力フォーマット規約のみを踏襲**し、RedFaucet 内に
-     `RedFaucet::OtelConverter` を新規実装する。`vivarium` gem への依存は持たない
+     OrangeTap の Worker と役割が重複し、そのままでは呼び出せない。
+   - よって **OTLP/JSON の出力フォーマット規約のみを踏襲**し、OrangeTap 内に
+     `OrangeTap::OtelConverter` を新規実装する。`vivarium` gem への依存は持たない
      （Pure Ruby・OS 非依存という目的と矛盾するため）。
-   - 将来の差し替えのため、`RedFaucet.config.otel_converter` で変換器を注入できる
-     アダプタ継ぎ目（seam）を用意する（デフォルトは `RedFaucet::OtelConverter`）。
+   - 将来の差し替えのため、`OrangeTap.config.otel_converter` で変換器を注入できる
+     アダプタ継ぎ目（seam）を用意する（デフォルトは `OrangeTap::OtelConverter`）。
 
 2. **Span 階層はセッションroot + スレッド + メソッドの3層とする（Vivarium と同型）。**
    - 1 セッション = 1 トレース（`trace_id` はセッションごとに 1 個生成）。
@@ -40,8 +40,8 @@ OpenTelemetry(OTel) 形式の JSON ファイルとして出力する Pure Ruby g
      `method span` を配置する。トップレベルのメソッドはそのスレッドの thread span を親とし、
      `parent` の付かない孤立 root が複数生じないようにする。
 
-3. **gem 名は `red_faucet`（末尾アンダースコアなし）に統一する。**
-   - 現状スキャフォールドは `red_faucet_` になっており、実装前に rename する（§8）。
+3. **gem 名は `orange_tap`（末尾アンダースコアなし）に統一する。**
+   - 現状スキャフォールドは `orange_tap_` になっており、実装前に rename する（§8）。
 
 4. **時刻は「セッション開始時の壁時計 unix ns」でアンカーして OTLP の絶対時刻に変換する。**
    - フック内では `Process.clock_gettime(CLOCK_MONOTONIC, :nanosecond)` のみを記録し（安価・単調）、
@@ -51,7 +51,7 @@ OpenTelemetry(OTel) 形式の JSON ファイルとして出力する Pure Ruby g
      （旧 DESIGN は monotonic ns をそのまま出力する想定で、OTel の絶対時刻が不正になる欠陥があった。）
 
 5. **スレッドをまたぐ非同期処理（`Thread.new`/`Fiber`/`Ractor`）の親子関係追跡は本バージョンではスコープ外。**
-   - `thread_id` 単位のスタックで完結させる。将来 `Thread.current[:red_faucet_parent_span_id]`
+   - `thread_id` 単位のスタックで完結させる。将来 `Thread.current[:orange_tap_parent_span_id]`
      等での伝播を検討（§9）。
 
 6. **Worker 例外は `Thread#value` の標準動作（再送出）に委ねる。**
@@ -71,9 +71,9 @@ OpenTelemetry(OTel) 形式の JSON ファイルとして出力する Pure Ruby g
 ┌──────────────────────────────────────────────────────────────┐
 │  監視対象 Rubyプロセス（1プロセス内で完結・中央デーモンなし）             │
 │                                                                │
-│  RedFaucet.trace_method(method_obj)   ← 静的登録: 対象メソッドのISeq  │
+│  OrangeTap.trace_method(method_obj)   ← 静的登録: 対象メソッドのISeq  │
 │       │                                                        │
-│  tape = RedFaucet.open  /  RedFaucet.open do ... end           │
+│  tape = OrangeTap.open  /  OrangeTap.open do ... end           │
 │       │  (open時にアンカー時刻取得 → trace_id生成 → Worker起動)        │
 │       ▼                                                        │
 │  TracePoint(:call,:return).enable(target: iseq)  ×対象ISeq個数    │
@@ -100,10 +100,10 @@ OpenTelemetry(OTel) 形式の JSON ファイルとして出力する Pure Ruby g
 
 ## 4. コンポーネント詳細
 
-### 4.1 Event（軽量・イミュータブル） — `lib/red_faucet/event.rb`
+### 4.1 Event（軽量・イミュータブル） — `lib/orange_tap/event.rb`
 
 ```ruby
-module RedFaucet
+module OrangeTap
   # フック内で1個だけ生成する軽量イベント。tp.binding / tp.parameters は取得しない。
   # defined_class は Module 参照をそのまま持ち、文字列化は Worker 側で行う（フックを軽く保つ）。
   Event = Data.define(:type, :thread_id, :method_id, :defined_class, :timestamp_ns)
@@ -114,16 +114,16 @@ end
 - `timestamp_ns` は `Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)`。
 - `thread_id` は `Thread.current.object_id`（C レベル・安価。生存中スレッドの識別には十分）。
 
-### 4.2 対象メソッド登録 — `lib/red_faucet/method_registry.rb`
+### 4.2 対象メソッド登録 — `lib/orange_tap/method_registry.rb`
 
-公開 API（`RedFaucet` トップレベルに委譲メソッドを置く）:
+公開 API（`OrangeTap` トップレベルに委譲メソッドを置く）:
 
 ```ruby
-RedFaucet.trace_method(SomeClass.instance_method(:foo))  # インスタンスメソッド(UnboundMethod)
-RedFaucet.trace_method(SomeClass.method(:bar))           # クラス/特異メソッド(Method)
-RedFaucet.trace_method(obj.method(:baz))                 # 特定オブジェクトの特異メソッド(Method)
-RedFaucet.trace_all_instance_methods(SomeClass)          # klass.instance_methods(false) を一括
-RedFaucet.untrace_method(SomeClass.instance_method(:foo))
+OrangeTap.trace_method(SomeClass.instance_method(:foo))  # インスタンスメソッド(UnboundMethod)
+OrangeTap.trace_method(SomeClass.method(:bar))           # クラス/特異メソッド(Method)
+OrangeTap.trace_method(obj.method(:baz))                 # 特定オブジェクトの特異メソッド(Method)
+OrangeTap.trace_all_instance_methods(SomeClass)          # klass.instance_methods(false) を一括
+OrangeTap.untrace_method(SomeClass.instance_method(:foo))
 ```
 
 要点:
@@ -131,7 +131,7 @@ RedFaucet.untrace_method(SomeClass.instance_method(:foo))
 - 引数は `Method` / `UnboundMethod` を **1 個直接**受け取る（`(klass, name)` 2 引数にしない）。
   これにより特異メソッドも統一 I/F で登録できる。いずれでもなければ `ArgumentError`。
 - ISeq は `RubyVM::InstructionSequence.of(method_obj)` で取得。取得できない
-  （C 実装メソッド等）場合は `RedFaucet::UntraceableMethodError`。
+  （C 実装メソッド等）場合は `OrangeTap::UntraceableMethodError`。
 - **登録キーはメソッドとしての同一性で作る**（Method/UnboundMethod は呼び出しごとに別オブジェクト）。
   キー = `[method_obj.owner, method_obj.name]`。
   - インスタンスメソッド: owner はクラス/モジュール。
@@ -139,11 +139,11 @@ RedFaucet.untrace_method(SomeClass.instance_method(:foo))
   - 特定オブジェクトの特異メソッド: owner はそのオブジェクトの特異クラス（オブジェクトごとに別）。
   いずれも `[owner, name]` で一意に識別・解除できる。
 - レジストリは `{ key => iseq }` を保持。`untrace_method` は同じキーで削除。重複登録は upsert で吸収。
-- `RedFaucet.default_registry` はプロセスグローバル。登録・解除は `Mutex` で保護する。
+- `OrangeTap.default_registry` はプロセスグローバル。登録・解除は `Mutex` で保護する。
   `open` 時に `targets`（＝ ISeq の配列）のスナップショットを取り、以後そのセッションは固定。
 
 ```ruby
-module RedFaucet
+module OrangeTap
   class MethodRegistry
     def initialize
       @entries = {}          # [owner, name] => iseq
@@ -155,7 +155,7 @@ module RedFaucet
         raise ArgumentError, "Method / UnboundMethod を渡してください: #{method_obj.inspect}"
       end
       iseq = RubyVM::InstructionSequence.of(method_obj)
-      raise RedFaucet::UntraceableMethodError, method_obj.inspect unless iseq
+      raise OrangeTap::UntraceableMethodError, method_obj.inspect unless iseq
       @mutex.synchronize { @entries[key_for(method_obj)] = iseq }
     end
 
@@ -178,28 +178,28 @@ module RedFaucet
 end
 ```
 
-### 4.3 セッション制御 — `lib/red_faucet/session.rb` と `lib/red_faucet.rb`
+### 4.3 セッション制御 — `lib/orange_tap/session.rb` と `lib/orange_tap.rb`
 
 公開 API:
 
 ```ruby
 # ブロック形式（内部でインスタンス形式を利用するシンタックスシュガー）
-path = RedFaucet.open do
+path = OrangeTap.open do
   # この区間の CALL/RETURN が1セッションとして記録される
 end
 # => 出力JSONファイルパス(String)
 
 # インスタンス形式
-tape = RedFaucet.new     # RedFaucet.new は Session.new を返すモジュールメソッド
+tape = OrangeTap.new     # OrangeTap.new は Session.new を返すモジュールメソッド
 tape.open
 # ...
 path = tape.stop         # => 出力JSONファイルパス(String)
 ```
 
-トップレベル（`lib/red_faucet.rb`）:
+トップレベル（`lib/orange_tap.rb`）:
 
 ```ruby
-module RedFaucet
+module OrangeTap
   class Error < StandardError; end
   class AlreadyOpenError < Error; end
   class NotOpenError < Error; end
@@ -207,7 +207,7 @@ module RedFaucet
 
   module_function
 
-  def new(**opts) = Session.new(**opts)                 # tape = RedFaucet.new
+  def new(**opts) = Session.new(**opts)                 # tape = OrangeTap.new
   def default_registry = (@default_registry ||= MethodRegistry.new)
   def config = (@config ||= Config.new)
 
@@ -233,9 +233,9 @@ end
 `Session`:
 
 ```ruby
-module RedFaucet
+module OrangeTap
   class Session
-    def initialize(registry: RedFaucet.default_registry, config: RedFaucet.config)
+    def initialize(registry: OrangeTap.default_registry, config: OrangeTap.config)
       @registry = registry
       @config = config
       @queue = nil
@@ -309,10 +309,10 @@ end
 - **並行セッション**は各々独立した Queue/Thread/TracePoint 群を持つため干渉しない。
   グローバル可変状態は `default_registry` と `config` のみで、どちらも読み取りは open 時スナップショット。
 
-### 4.4 Worker — `lib/red_faucet/worker.rb`
+### 4.4 Worker — `lib/orange_tap/worker.rb`
 
 ```ruby
-module RedFaucet
+module OrangeTap
   class Worker
     Context = Data.define(:queue, :config, :trace_id, :start_mono_ns, :start_unix_ns)
 
@@ -387,7 +387,7 @@ module RedFaucet
       PendingSpan.new(
         span_id: SecureRandom.hex(8),
         parent_span_id: nil,                 # ルート（parentSpanId 省略）
-        name: "red_faucet session",
+        name: "orange_tap session",
         thread_id: nil,
         start_mono_ns: @ctx.start_mono_ns
       )
@@ -419,7 +419,7 @@ module RedFaucet
       )
       FileUtils.mkdir_p(@ctx.config.output_dir)
       path = File.join(@ctx.config.output_dir,
-                       "red_faucet-#{Time.now.to_i}-#{SecureRandom.hex(4)}.json")
+                       "orange_tap-#{Time.now.to_i}-#{SecureRandom.hex(4)}.json")
       File.write(path, JSON.generate(document))
       path
     end
@@ -427,10 +427,10 @@ module RedFaucet
 end
 ```
 
-### 4.5 PendingSpan（中間表現） — `lib/red_faucet/pending_span.rb`
+### 4.5 PendingSpan（中間表現） — `lib/orange_tap/pending_span.rb`
 
 ```ruby
-module RedFaucet
+module OrangeTap
   # モノトニック ns で保持する組み立て中の Span。OTLP への時刻換算は OtelConverter が行う。
   class PendingSpan
     attr_accessor :span_id, :parent_span_id, :name, :thread_id,
@@ -444,7 +444,7 @@ module RedFaucet
 end
 ```
 
-### 4.6 OtelConverter（自己完結の内蔵 Writer） — `lib/red_faucet/otel_converter.rb`
+### 4.6 OtelConverter（自己完結の内蔵 Writer） — `lib/orange_tap/otel_converter.rb`
 
 Vivarium の OTLP/JSON フォーマット規約（`resourceSpans → scopeSpans → spans`、`traceId`=32hex・
 `spanId`=16hex、時刻は文字列 nano、属性は `{key,value:{stringValue|intValue|boolValue}}`）を踏襲した
@@ -454,7 +454,7 @@ Vivarium の OTLP/JSON フォーマット規約（`resourceSpans → scopeSpans 
 インターフェース（Worker から呼ばれる契約）:
 
 ```ruby
-module RedFaucet
+module OrangeTap
   module OtelConverter
     SPAN_KIND_INTERNAL = 1
     module_function
@@ -468,7 +468,7 @@ module RedFaucet
         resourceSpans: [{
           resource: { attributes: [str_attr("service.name", service_name)] },
           scopeSpans: [{
-            scope: { name: service_name, version: RedFaucet::VERSION },
+            scope: { name: service_name, version: OrangeTap::VERSION },
             spans: otlp_spans
           }]
         }]
@@ -478,7 +478,7 @@ module RedFaucet
     def span_hash(s, trace_id, to_unix)
       attrs = []
       attrs << int_attr("thread.id", s.thread_id) if s.thread_id
-      attrs << bool_attr("red_faucet.incomplete", true) if s.incomplete
+      attrs << bool_attr("orange_tap.incomplete", true) if s.incomplete
       h = {
         traceId: trace_id,
         spanId: s.span_id,
@@ -502,16 +502,16 @@ end
 > `trace_id`(32hex) / `span_id`(16hex) は `SecureRandom.hex` で最初から hex 文字列として
 > 生成するため、Vivarium のような int→hex 変換（`synth_span_id`/`hex16`）は不要。
 
-### 4.7 Config — `lib/red_faucet/config.rb`
+### 4.7 Config — `lib/orange_tap/config.rb`
 
 ```ruby
-module RedFaucet
+module OrangeTap
   class Config
     attr_accessor :output_dir, :service_name, :otel_converter
     def initialize
-      @output_dir     = File.join(Dir.tmpdir, "red_faucet")  # 書き出し先（存在しなければ mkdir_p）
-      @service_name   = "red_faucet"
-      @otel_converter = RedFaucet::OtelConverter             # 差し替え可能な継ぎ目
+      @output_dir     = File.join(Dir.tmpdir, "orange_tap")  # 書き出し先（存在しなければ mkdir_p）
+      @service_name   = "orange_tap"
+      @otel_converter = OrangeTap::OtelConverter             # 差し替え可能な継ぎ目
     end
   end
 end
@@ -524,11 +524,11 @@ end
 ## 5. ディレクトリ構造（Pure Ruby / ext なし）
 
 ```
-red_faucet/
-├── red_faucet.gemspec
+orange_tap/
+├── orange_tap.gemspec
 ├── lib/
-│   ├── red_faucet.rb                 # トップレベルAPI + require + 例外クラス
-│   └── red_faucet/
+│   ├── orange_tap.rb                 # トップレベルAPI + require + 例外クラス
+│   └── orange_tap/
 │       ├── version.rb
 │       ├── config.rb
 │       ├── event.rb
@@ -537,7 +537,7 @@ red_faucet/
 │       ├── worker.rb
 │       ├── pending_span.rb
 │       └── otel_converter.rb
-├── sig/red_faucet.rbs
+├── sig/orange_tap.rbs
 ├── test/                             # 既存スキャフォールド(minitest)を踏襲
 └── README.md
 ```
@@ -552,13 +552,13 @@ red_faucet/
 2. インスタンスメソッド／クラス（特異）メソッド／特定オブジェクトの特異メソッドを
    `trace_method(obj.method(:foo))` 等で登録・捕捉できる。
 3. 未登録メソッドは捕捉されない（`target:` で絞られている）。
-4. `RedFaucet.open do...end` がパス(String)を返し、ファイルが実在し、妥当な JSON である
+4. `OrangeTap.open do...end` がパス(String)を返し、ファイルが実在し、妥当な JSON である
    （`resourceSpans` を含む OTLP 構造・`traceId`=32桁・`spanId`=16桁を検証）。
 5. 二重 `open` → `AlreadyOpenError`。
 6. 未 `open` の `stop` → `NotOpenError`。
 7. ブロック内例外時も TracePoint が確実に disable される（後続テストに影響しない）。
 8. 再帰・ネスト呼び出しで CALL/RETURN 対応付けが正しい（parent 関係の検証）。
-9. RETURN 未着（強制終了）ケースで `red_faucet.incomplete=true` の Span が出力される。
+9. RETURN 未着（強制終了）ケースで `orange_tap.incomplete=true` の Span が出力される。
 10. 複数インスタンスの並行 `open` が互いに干渉しない（別ファイル・別 trace_id）。
 11. `UntraceableMethodError`（C 実装メソッド登録時）と `ArgumentError`（非 Method 引数）。
 12. `untrace_method` が別オブジェクト由来の同一メソッドでも解除できる（`[owner, name]` キー）。
@@ -585,15 +585,15 @@ red_faucet/
 
 ## 8. gem 名 rename（実装着手前の作業）
 
-`red_faucet_` → `red_faucet` に統一する。対象:
+`orange_tap_` → `orange_tap` に統一する。対象:
 
-- `red_faucet_.gemspec` → `red_faucet.gemspec`（`spec.name` / `require_relative` パス / TODO メタ情報の記入）
-- `lib/red_faucet_.rb` → `lib/red_faucet.rb`
-- `lib/red_faucet_/` → `lib/red_faucet/`（配下 `version.rb` 等）
-- `sig/red_faucet_.rbs` → `sig/red_faucet.rbs`
-- `test/red_faucet__test.rb` → `test/red_faucet_test.rb`、`test/test_helper.rb` の require 修正
-- `Rakefile` / `bin/console` 等に `red_faucet_` 参照があれば修正
-- モジュール名 `RedFaucet` は変更不要（既に一致）。
+- `orange_tap_.gemspec` → `orange_tap.gemspec`（`spec.name` / `require_relative` パス / TODO メタ情報の記入）
+- `lib/orange_tap_.rb` → `lib/orange_tap.rb`
+- `lib/orange_tap_/` → `lib/orange_tap/`（配下 `version.rb` 等）
+- `sig/orange_tap_.rbs` → `sig/orange_tap.rbs`
+- `test/orange_tap__test.rb` → `test/orange_tap_test.rb`、`test/test_helper.rb` の require 修正
+- `Rakefile` / `bin/console` 等に `orange_tap_` 参照があれば修正
+- モジュール名 `OrangeTap` は変更不要（既に一致）。
 
 ---
 
@@ -612,7 +612,7 @@ red_faucet/
 - `define_method`/ブロックベースメソッドを `register` 時点で検出し、
   `UntraceableMethodError` を送出する（現状は `open` 時の `enable` で初めて失敗する）。
 - スレッド／Fiber／Ractor をまたぐ非同期処理の親子関係伝播
-  （`Thread.current[:red_faucet_parent_span_id]` 等の context 伝播）。
+  （`Thread.current[:orange_tap_parent_span_id]` 等の context 伝播）。
 - 並行セッションで同一メソッドを共有する場合の二重フック解消
   （registry をセッション間共有しフック内で振り分ける方式。ただし「どのセッションに属すか」の
   判定ロジックが再び必要になり、現行のシンプルさとのトレードオフ）。

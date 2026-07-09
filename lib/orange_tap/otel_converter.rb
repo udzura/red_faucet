@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module RedFaucet
+module OrangeTap
   # Self-contained OTLP/JSON writer. Follows the wire format conventions of
   # OTLP/JSON (resourceSpans -> scopeSpans -> spans, 32-hex traceId, 16-hex
   # spanId, string-encoded nanosecond timestamps) but does not depend on any
@@ -25,7 +25,7 @@ module RedFaucet
             resource: { attributes: [str_attr("service.name", service_name)] },
             scopeSpans: [
               {
-                scope: { name: service_name, version: RedFaucet::VERSION },
+                scope: { name: service_name, version: OrangeTap::VERSION },
                 spans: spans.map { |s| span_hash(s, trace_id, to_unix) }
               }
             ]
@@ -37,7 +37,7 @@ module RedFaucet
     def span_hash(span, trace_id, to_unix)
       attributes = []
       attributes << int_attr("thread.id", span.thread_id) if span.thread_id
-      attributes << bool_attr("red_faucet.incomplete", true) if span.incomplete
+      attributes << bool_attr("orange_tap.incomplete", true) if span.incomplete
 
       hash = {
         traceId: trace_id,

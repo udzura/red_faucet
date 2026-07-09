@@ -2,12 +2,12 @@
 # frozen_string_literal: true
 
 # Minimal end-to-end example: define some classes, register the methods you
-# want traced, wrap the code you want to observe in RedFaucet.open, and print
+# want traced, wrap the code you want to observe in OrangeTap.open, and print
 # the resulting OTLP/JSON file.
 #
 #   ruby -Ilib examples/order_demo.rb
 
-require "red_faucet"
+require "orange_tap"
 require "json"
 
 class Order
@@ -46,15 +46,15 @@ end
 
 # Register the methods we care about. Instance methods, module/class
 # methods, and singleton methods can all be passed the same way.
-RedFaucet.trace_method(Order.instance_method(:total))
-RedFaucet.trace_method(Order.instance_method(:checkout))
-RedFaucet.trace_method(Pricing.method(:price_for))
-RedFaucet.trace_method(Receipt.instance_method(:print))
+OrangeTap.trace_method(Order.instance_method(:total))
+OrangeTap.trace_method(Order.instance_method(:checkout))
+OrangeTap.trace_method(Pricing.method(:price_for))
+OrangeTap.trace_method(Receipt.instance_method(:print))
 
 path = nil
 # Avoid YJIT compile overhead in this example by running the code multiple times
 3.times do
-  path = RedFaucet.open do
+  path = OrangeTap.open do
     order = Order.new(%w[coffee cake tea coffee])
     order.checkout
   end

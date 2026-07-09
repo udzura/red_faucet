@@ -2,7 +2,7 @@
 
 require "securerandom"
 
-module RedFaucet
+module OrangeTap
   # Controls a single recording session's lifecycle. Each #open call creates
   # a dedicated Queue and Worker Thread; there is no session_id, because the
   # Queue instance itself is what scopes events to this session. This also
@@ -10,7 +10,7 @@ module RedFaucet
   # without any cross-session bookkeeping: each has its own Queue, Thread,
   # and TracePoint set.
   class Session
-    def initialize(registry: RedFaucet.default_registry, config: RedFaucet.config)
+    def initialize(registry: OrangeTap.default_registry, config: OrangeTap.config)
       @registry = registry
       @config = config
       @queue = nil

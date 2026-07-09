@@ -4,7 +4,7 @@ require "json"
 require "securerandom"
 require "fileutils"
 
-module RedFaucet
+module OrangeTap
   # Runs on a dedicated Thread created by Session#open. Drains the session's
   # Queue, reconstructs a 3-layer span tree (session root / per-thread /
   # per-method) from CALL/RETURN pairs, and writes a single OTLP/JSON file.
@@ -95,7 +95,7 @@ module RedFaucet
       PendingSpan.new(
         span_id: SecureRandom.hex(8),
         parent_span_id: nil,
-        name: "red_faucet session",
+        name: "orange_tap session",
         thread_id: nil,
         start_mono_ns: @ctx.start_mono_ns
       )
@@ -128,7 +128,7 @@ module RedFaucet
       )
 
       FileUtils.mkdir_p(@ctx.config.output_dir)
-      path = File.join(@ctx.config.output_dir, "red_faucet-#{@ctx.trace_id}.json")
+      path = File.join(@ctx.config.output_dir, "orange_tap-#{@ctx.trace_id}.json")
       File.write(path, JSON.generate(document))
       path
     end

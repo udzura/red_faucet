@@ -1,6 +1,6 @@
-# RedFaucet
+# OrangeTap
 
-RedFaucet hooks Ruby method calls (call/return) with `TracePoint`, assembles
+OrangeTap hooks Ruby method calls (call/return) with `TracePoint`, assembles
 them into OpenTelemetry-style spans on a background thread inside the same
 process, and writes the result as an OTLP/JSON file. There is no central
 daemon, no shared memory, and no inter-process communication of any kind —
@@ -10,7 +10,7 @@ tracing is entirely contained within the observed Ruby process.
 
 ### Why Ruby-level `TracePoint` instead of `rb_add_event_hook`
 
-RedFaucet intentionally uses the Ruby-level `TracePoint` API rather than the
+OrangeTap intentionally uses the Ruby-level `TracePoint` API rather than the
 C-level `rb_add_event_hook`/`trace_func` mechanism. Ruby 4.0's C-level
 `trace_func` has a known bug, so this gem avoids it by design and pays the
 (small, and in practice dominated by the traced call itself) overhead of a
@@ -21,9 +21,9 @@ overhead at all.
 ### No central daemon — everything lives in one process's Thread + Queue
 
 Earlier iterations of this idea used a shared-memory ring buffer and an XPC
-daemon process. RedFaucet drops all of that: a session is just a
+daemon process. OrangeTap drops all of that: a session is just a
 `Thread::Queue` plus a background `Thread` inside the same process that
-called `RedFaucet.open`. Correlating traces across multiple OS processes is
+called `OrangeTap.open`. Correlating traces across multiple OS processes is
 explicitly out of scope for this gem.
 
 ### Why `open`/`stop` need no `session_id`
@@ -32,7 +32,7 @@ Each call to `open` creates a brand new `Queue` and worker `Thread` dedicated
 to that session. Because a Worker only ever drains events pushed by the
 TracePoints that same `Session` enabled, the `Queue` instance itself is what
 scopes an event to a session — there is no `session_id` field anywhere, and
-running multiple sessions concurrently (multiple `RedFaucet.new.open` calls
+running multiple sessions concurrently (multiple `OrangeTap.new.open` calls
 at once) works without any extra bookkeeping.
 
 ### What isn't tracked
@@ -59,19 +59,19 @@ at once) works without any extra bookkeeping.
 ## Installation
 
 ```bash
-bundle add red_faucet
+bundle add orange_tap
 ```
 
 Or, without Bundler:
 
 ```bash
-gem install red_faucet
+gem install orange_tap
 ```
 
 ## Usage
 
 ```ruby
-require "red_faucet"
+require "orange_tap"
 
 class Worker
   def process(job)
@@ -79,9 +79,9 @@ class Worker
   end
 end
 
-RedFaucet.trace_method(Worker.instance_method(:process))
+OrangeTap.trace_method(Worker.instance_method(:process))
 
-path = RedFaucet.open do
+path = OrangeTap.open do
   Worker.new.process(job)
 end
 # => path to a written OTLP/JSON file
@@ -90,7 +90,7 @@ end
 Or using the instance form:
 
 ```ruby
-tape = RedFaucet.new
+tape = OrangeTap.new
 tape.open
 # ...
 path = tape.stop
@@ -99,16 +99,16 @@ path = tape.stop
 Other registration entry points:
 
 ```ruby
-RedFaucet.trace_method(SomeClass.method(:some_class_method))   # class/singleton method
-RedFaucet.trace_method(some_object.method(:some_method))       # singleton method on one object
-RedFaucet.trace_all_instance_methods(SomeClass)                # all instance methods at once
-RedFaucet.untrace_method(SomeClass.instance_method(:some_method))
+OrangeTap.trace_method(SomeClass.method(:some_class_method))   # class/singleton method
+OrangeTap.trace_method(some_object.method(:some_method))       # singleton method on one object
+OrangeTap.trace_all_instance_methods(SomeClass)                # all instance methods at once
+OrangeTap.untrace_method(SomeClass.instance_method(:some_method))
 ```
 
 Output location is configurable:
 
 ```ruby
-RedFaucet.config.output_dir = "/path/to/traces"
+OrangeTap.config.output_dir = "/path/to/traces"
 ```
 
 ### Example
@@ -140,15 +140,15 @@ end
 ```
 
 traces a mix of instance and module methods, and wraps the call in
-`RedFaucet.open`:
+`OrangeTap.open`:
 
 ```ruby
-RedFaucet.trace_method(Order.instance_method(:total))
-RedFaucet.trace_method(Order.instance_method(:checkout))
-RedFaucet.trace_method(Pricing.method(:price_for))
-RedFaucet.trace_method(Receipt.instance_method(:print))
+OrangeTap.trace_method(Order.instance_method(:total))
+OrangeTap.trace_method(Order.instance_method(:checkout))
+OrangeTap.trace_method(Pricing.method(:price_for))
+OrangeTap.trace_method(Receipt.instance_method(:print))
 
-path = RedFaucet.open do
+path = OrangeTap.open do
   Order.new(%w[coffee cake tea coffee]).checkout
 end
 ```
@@ -165,7 +165,7 @@ of that output is checked in at
 
 Importing that JSON into Jaeger (all-in-one) as an OTLP trace renders the
 following span tree, which matches the example's call graph exactly —
-`red_faucet session` → `tid=...` → `Order#checkout` → `Order#total` →
+`orange_tap session` → `tid=...` → `Order#checkout` → `Order#total` →
 `Pricing.price_for` ×4, plus `Receipt#print`:
 
 ![Example trace visualized in Jaeger](examples/jaeger-screenshot.png)
@@ -179,12 +179,12 @@ interactive prompt that will allow you to experiment.
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at
-https://github.com/udzura/red_faucet. This project is intended to be a safe,
+https://github.com/udzura/orange_tap. This project is intended to be a safe,
 welcoming space for collaboration, and contributors are expected to adhere to
-the [code of conduct](https://github.com/udzura/red_faucet/blob/main/CODE_OF_CONDUCT.md).
+the [code of conduct](https://github.com/udzura/orange_tap/blob/main/CODE_OF_CONDUCT.md).
 
 ## Code of Conduct
 
-Everyone interacting in the RedFaucet project's codebases, issue trackers,
+Everyone interacting in the OrangeTap project's codebases, issue trackers,
 chat rooms and mailing lists is expected to follow the
-[code of conduct](https://github.com/udzura/red_faucet/blob/main/CODE_OF_CONDUCT.md).
+[code of conduct](https://github.com/udzura/orange_tap/blob/main/CODE_OF_CONDUCT.md).

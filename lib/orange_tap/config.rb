@@ -2,14 +2,14 @@
 
 require "tmpdir"
 
-module RedFaucet
+module OrangeTap
   class Config
     attr_accessor :output_dir, :service_name, :otel_converter
 
     def initialize
-      @output_dir = File.join(Dir.tmpdir, "red_faucet")
-      @service_name = "red_faucet"
-      @otel_converter = RedFaucet::OtelConverter
+      @output_dir = File.join(Dir.tmpdir, "orange_tap")
+      @service_name = "orange_tap"
+      @otel_converter = OrangeTap::OtelConverter
     end
   end
 end

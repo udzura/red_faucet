@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require_relative "lib/red_faucet/version"
+require_relative "lib/orange_tap/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "red_faucet"
-  spec.version = RedFaucet::VERSION
+  spec.name = "orange_tap"
+  spec.version = OrangeTap::VERSION
   spec.authors = ["Uchio Kondo"]
   spec.email = ["uchio.kondo@smarthr.co.jp"]
 

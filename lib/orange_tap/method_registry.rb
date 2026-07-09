@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-module RedFaucet
+module OrangeTap
   # Holds the set of methods to be traced, keyed by [owner, name] rather than
   # by Method/UnboundMethod object identity. Method/UnboundMethod instances
   # are freshly allocated on every `obj.method(:foo)` call, so identity-based
@@ -20,7 +20,7 @@ module RedFaucet
       end
 
       iseq = RubyVM::InstructionSequence.of(method_obj)
-      raise RedFaucet::UntraceableMethodError, method_obj.inspect unless iseq
+      raise OrangeTap::UntraceableMethodError, method_obj.inspect unless iseq
 
       @mutex.synchronize { @entries[key_for(method_obj)] = iseq }
       nil
