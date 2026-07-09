@@ -148,10 +148,12 @@ traces a mix of instance and module methods, and wraps the call in
 `OrangeTap.open`:
 
 ```ruby
-OrangeTap.trace_method(Order.instance_method(:total))
-OrangeTap.trace_method(Order.instance_method(:checkout))
-OrangeTap.trace_method(Pricing.method(:price_for))
-OrangeTap.trace_method(Receipt.instance_method(:print))
+OrangeTap.trace_method(
+  "Order#total",
+  "Order#checkout",
+  "Pricing.price_for",
+  "Receipt#print"
+)
 
 path = OrangeTap.open do
   Order.new(%w[coffee cake tea coffee]).checkout
