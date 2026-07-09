@@ -31,12 +31,15 @@ module OrangeTap
     @config ||= Config.new
   end
 
-  def trace_method(method_obj)
-    default_registry.register(method_obj)
+  # Accepts one or more Method/UnboundMethod objects, or notation strings
+  # ("Foo.bar" for a class/singleton method, "Foo#bar" for an instance
+  # method), and registers them all in a single call.
+  def trace_method(*method_objs)
+    default_registry.register(*method_objs)
   end
 
-  def untrace_method(method_obj)
-    default_registry.unregister(method_obj)
+  def untrace_method(*method_objs)
+    default_registry.unregister(*method_objs)
   end
 
   def trace_all_instance_methods(klass)

@@ -44,12 +44,14 @@ class Receipt
   end
 end
 
-# Register the methods we care about. Instance methods, module/class
-# methods, and singleton methods can all be passed the same way.
-OrangeTap.trace_method(Order.instance_method(:total))
-OrangeTap.trace_method(Order.instance_method(:checkout))
-OrangeTap.trace_method(Pricing.method(:price_for))
-OrangeTap.trace_method(Receipt.instance_method(:print))
+# Register the methods we care about in one call. "Foo#bar" resolves to an
+# instance method, "Foo.bar" to a module/class (singleton) method.
+OrangeTap.trace_method(
+  "Order#total",
+  "Order#checkout",
+  "Pricing.price_for",
+  "Receipt#print"
+)
 
 path = nil
 # Avoid YJIT compile overhead in this example by running the code multiple times

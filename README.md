@@ -103,6 +103,11 @@ OrangeTap.trace_method(SomeClass.method(:some_class_method))   # class/singleton
 OrangeTap.trace_method(some_object.method(:some_method))       # singleton method on one object
 OrangeTap.trace_all_instance_methods(SomeClass)                # all instance methods at once
 OrangeTap.untrace_method(SomeClass.instance_method(:some_method))
+
+# Register several methods in one call, and/or use "Foo.bar" / "Foo#bar"
+# notation strings instead of resolving Method/UnboundMethod objects yourself:
+OrangeTap.trace_method("SomeClass.some_class_method", "SomeClass#some_method")
+OrangeTap.untrace_method("SomeClass.some_class_method", "SomeClass#some_method")
 ```
 
 Output location is configurable:
@@ -143,10 +148,12 @@ traces a mix of instance and module methods, and wraps the call in
 `OrangeTap.open`:
 
 ```ruby
-OrangeTap.trace_method(Order.instance_method(:total))
-OrangeTap.trace_method(Order.instance_method(:checkout))
-OrangeTap.trace_method(Pricing.method(:price_for))
-OrangeTap.trace_method(Receipt.instance_method(:print))
+OrangeTap.trace_method(
+  "Order#total",
+  "Order#checkout",
+  "Pricing.price_for",
+  "Receipt#print"
+)
 
 path = OrangeTap.open do
   Order.new(%w[coffee cake tea coffee]).checkout
