@@ -233,6 +233,58 @@ class OrangeTapTest < Test::Unit::TestCase
     end
   end
 
+  test "trace_method accepts multiple arguments in one call" do
+    OrangeTap.trace_method(
+      Sample.instance_method(:instance_method_a),
+      Sample.method(:class_method_b)
+    )
+
+    path = OrangeTap.open do
+      Sample.new.instance_method_a
+      Sample.class_method_b
+    end
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "Sample#instance_method_a")
+    assert_include(names, "Sample.class_method_b")
+  end
+
+  test "trace_method resolves 'Foo.bar' notation to a class/singleton method" do
+    OrangeTap.trace_method("Sample.class_method_b")
+
+    path = OrangeTap.open { Sample.class_method_b }
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "Sample.class_method_b")
+  end
+
+  test "trace_method resolves 'Foo#bar' notation to an instance method" do
+    OrangeTap.trace_method("Sample#instance_method_a")
+
+    path = OrangeTap.open { Sample.new.instance_method_a }
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "Sample#instance_method_a")
+  end
+
+  test "trace_method rejects notation strings that match neither pattern" do
+    assert_raise(ArgumentError) { OrangeTap.trace_method("not a notation") }
+  end
+
+  test "untrace_method accepts multiple arguments and notation strings" do
+    OrangeTap.trace_method("Sample#instance_method_a", "Sample.class_method_b")
+    OrangeTap.untrace_method("Sample#instance_method_a", "Sample.class_method_b")
+
+    path = OrangeTap.open do
+      Sample.new.instance_method_a
+      Sample.class_method_b
+    end
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_not_include(names, "Sample#instance_method_a")
+    assert_not_include(names, "Sample.class_method_b")
+  end
+
   test "untrace_method identifies methods by owner+name, not object identity" do
     OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
     # A freshly obtained Method/UnboundMethod object for the same method
