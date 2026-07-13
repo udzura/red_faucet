@@ -18,7 +18,7 @@ module OrangeTap
       @tracepoint_targets = nil
     end
 
-    def open
+    def open(session_name = nil)
       raise AlreadyOpenError if @queue
 
       # Anchor monotonic time to wall-clock time once, at session start, so
@@ -37,7 +37,8 @@ module OrangeTap
 
       ctx = Worker::Context.new(
         queue: @queue, config: @config, trace_id: trace_id,
-        start_mono_ns: start_mono_ns, start_unix_ns: start_unix_ns
+        start_mono_ns: start_mono_ns, start_unix_ns: start_unix_ns,
+        session_name: session_name
       )
       @worker_thread = Thread.new(ctx) { |worker_ctx| Worker.new(worker_ctx).run }
 
