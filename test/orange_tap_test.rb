@@ -233,6 +233,34 @@ class OrangeTapTest < Test::Unit::TestCase
     end
   end
 
+  test "open uses the default root span name when none is given" do
+    path = OrangeTap.open { nil }
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "orange_tap session")
+  end
+
+  test "open(name) overrides the root span name" do
+    path = OrangeTap.open("my-span") { nil }
+    document = read_document(path)
+    spans = all_spans(document)
+    root = spans.find { |s| !s.key?("parentSpanId") }
+
+    refute_nil(root)
+    assert_equal("my-span", root["name"])
+  end
+
+  test "instance form open(name) also overrides the root span name" do
+    tape = OrangeTap.new
+    tape.open("instance-span")
+    path = tape.stop
+
+    spans = all_spans(read_document(path))
+    root = spans.find { |s| !s.key?("parentSpanId") }
+    refute_nil(root)
+    assert_equal("instance-span", root["name"])
+  end
+
   test "trace_method accepts multiple arguments in one call" do
     OrangeTap.trace_method(
       Sample.instance_method(:instance_method_a),

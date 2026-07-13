@@ -56,7 +56,7 @@ OrangeTap.trace_method(
 path = nil
 # Avoid YJIT compile overhead in this example by running the code multiple times
 3.times do
-  path = OrangeTap.open do
+  path = OrangeTap.open("DummyController#dummy") do
     order = Order.new(%w[coffee cake tea coffee])
     order.checkout
   end

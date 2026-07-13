@@ -13,7 +13,9 @@ module OrangeTap
   # tag on Event, because a Worker only ever drains events produced by the
   # TracePoints of the Session that spawned it.
   class Worker
-    Context = Data.define(:queue, :config, :trace_id, :start_mono_ns, :start_unix_ns)
+    Context = Data.define(:queue, :config, :trace_id, :start_mono_ns, :start_unix_ns, :session_name)
+
+    DEFAULT_SESSION_NAME = "orange_tap session"
 
     def initialize(ctx)
       @ctx = ctx
@@ -95,7 +97,7 @@ module OrangeTap
       PendingSpan.new(
         span_id: SecureRandom.hex(8),
         parent_span_id: nil,
-        name: "orange_tap session",
+        name: @ctx.session_name || DEFAULT_SESSION_NAME,
         thread_id: nil,
         start_mono_ns: @ctx.start_mono_ns
       )

@@ -46,9 +46,9 @@ module OrangeTap
     default_registry.register_all_instance_methods(klass)
   end
 
-  def open(&block)
+  def open(name = nil, &block)
     tape = new
-    tape.open
+    tape.open(name)
     return tape unless block
 
     begin

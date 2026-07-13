@@ -96,6 +96,19 @@ tape.open
 path = tape.stop
 ```
 
+The root (session) span is named `"orange_tap session"` by default. Pass a
+name to override it — handy for telling sessions apart when the output is
+imported into a trace viewer:
+
+```ruby
+OrangeTap.open("checkout-flow") { ... }
+
+tape = OrangeTap.new
+tape.open("checkout-flow")
+# ...
+tape.stop
+```
+
 Other registration entry points:
 
 ```ruby
