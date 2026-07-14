@@ -47,6 +47,10 @@ at once) works without any extra bookkeeping.
   an ISeq of type `:block`, which `TracePoint#enable(target:)` cannot target
   and raises `ArgumentError` — attempting to trace one will fail at `open`
   time, not at `trace_method` time.
+- **C-implemented methods, unless explicitly opted in.** Methods with no Ruby
+  ISeq are rejected by default. They can be traced via a global hook by
+  setting `config.trace_c_methods = true`, at a process-wide performance cost
+  — see [Tracing C-implemented methods](#tracing-c-implemented-methods-opt-in).
 - **Errors inside the Worker thread.** If the worker thread raises while
   assembling spans, `Session#stop` re-raises that error via `Thread#value`'s
   standard behavior. TracePoints are always disabled *before* the worker is
@@ -128,6 +132,33 @@ Output location is configurable:
 ```ruby
 OrangeTap.config.output_dir = "/path/to/traces"
 ```
+
+### Tracing C-implemented methods (opt-in)
+
+By default, registering a C-implemented method (one with no Ruby ISeq, e.g.
+`String#upcase`) raises `OrangeTap::UntraceableMethodError`, because the
+low-overhead `TracePoint#enable(target:)` mechanism requires an ISeq.
+
+You can opt in to tracing C methods through the same `trace_method` API by
+enabling a config flag **before** registering them:
+
+```ruby
+OrangeTap.config.trace_c_methods = true
+OrangeTap.trace_method(String.instance_method(:upcase))   # now accepted
+```
+
+**Performance trade-off:** when enabled and at least one C method is
+registered, each session installs a single global `:c_call`/`:c_return`
+`TracePoint` (no `target:`). That hook fires on **every C call in the
+process** — including very hot ones like `Array#each`, `Hash#[]`, `Integer#+`
+— and filters by `[owner, name]` inside the hook. So the "zero overhead for
+unregistered methods" guarantee no longer holds once any C method is traced.
+Concurrent sessions each add their own global hook, compounding the cost.
+Enable it only when you specifically need C-method spans.
+
+A C method that is a *singleton method on a specific object* (rather than a
+class/singleton method like `Foo.bar`) is not supported: it is skipped with a
+warning at registration time.
 
 ### Example
 
