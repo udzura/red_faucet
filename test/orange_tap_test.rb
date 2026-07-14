@@ -23,6 +23,13 @@ class Sample
     "untraced"
   end
 
+  # Calls a C-implemented method (String#upcase) so that, when both are
+  # registered, the C span nests directly under this Ruby span.
+  def calls_c_method
+    self.class.calls << :calls_c_method
+    "z".upcase
+  end
+
   def self.class_method_b
     calls << :class_method_b
     "b"
@@ -54,11 +61,18 @@ class OrangeTapTest < Test::Unit::TestCase
     OrangeTap.default_registry.unregister(Sample.method(:class_method_b))
     OrangeTap.default_registry.unregister(Sample.instance_method(:recursive))
     OrangeTap.default_registry.unregister(Sample.instance_method(:blocking))
+    OrangeTap.default_registry.unregister(Sample.instance_method(:calls_c_method))
+    # C-method opt-in is a global flag / registry; reset it and drop any C
+    # entries so these tests don't leak into the ISeq-based ones.
+    OrangeTap.config.trace_c_methods = false
+    OrangeTap.untrace_method(String.instance_method(:upcase), Array.instance_method(:sort))
     @tmpdir = Dir.mktmpdir("orange_tap_test")
     OrangeTap.config.output_dir = @tmpdir
   end
 
   def teardown
+    OrangeTap.config.trace_c_methods = false
+    OrangeTap.untrace_method(String.instance_method(:upcase), Array.instance_method(:sort))
     FileUtils.remove_entry(@tmpdir) if @tmpdir && File.directory?(@tmpdir)
   end
 
@@ -231,6 +245,74 @@ class OrangeTapTest < Test::Unit::TestCase
     assert_raise(OrangeTap::UntraceableMethodError) do
       OrangeTap.trace_method(String.instance_method(:upcase))
     end
+  end
+
+  test "opt-in: registered C method is captured as a span" do
+    OrangeTap.config.trace_c_methods = true
+    OrangeTap.trace_method(String.instance_method(:upcase))
+
+    path = OrangeTap.open { "hi".upcase }
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "String#upcase")
+  end
+
+  test "opt-in: unregistered C methods are filtered out by the global hook" do
+    OrangeTap.config.trace_c_methods = true
+    OrangeTap.trace_method(String.instance_method(:upcase))
+
+    path = OrangeTap.open do
+      "hi".upcase       # registered -> captured
+      "hi".downcase     # unregistered C call -> must be filtered
+    end
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "String#upcase")
+    assert_not_include(names, "String#downcase")
+  end
+
+  test "opt-in: Ruby (ISeq) and C methods nest in the same span tree" do
+    OrangeTap.config.trace_c_methods = true
+    OrangeTap.trace_method(
+      Sample.instance_method(:calls_c_method),
+      String.instance_method(:upcase)
+    )
+
+    path = OrangeTap.open { Sample.new.calls_c_method }
+    spans = all_spans(read_document(path))
+
+    outer = spans.find { |s| s["name"] == "Sample#calls_c_method" }
+    inner = spans.find { |s| s["name"] == "String#upcase" }
+    refute_nil(outer)
+    refute_nil(inner)
+    # The C span (upcase) is called inside the Ruby span, so it must be a
+    # direct child of it.
+    assert_equal(outer["spanId"], inner["parentSpanId"])
+  end
+
+  test "opt-in: singleton C method on a specific object is skipped with a warning" do
+    OrangeTap.config.trace_c_methods = true
+    str = +"hello"
+    # Bind a C-implemented method into the object's singleton class: ISeq-less,
+    # owner is the object's singleton class (attached_object is not a Module).
+    str.singleton_class.send(:define_method, :c_singleton, String.instance_method(:upcase))
+
+    warning = capture_warning { OrangeTap.trace_method(str.method(:c_singleton)) }
+
+    assert_match(/singleton C method/, warning)
+    assert(OrangeTap.default_registry.c_targets.empty?)
+  end
+
+  def capture_warning
+    original = $VERBOSE
+    captured = +""
+    mod = Module.new
+    mod.define_method(:warn) { |msg, *_a, **_k| captured << msg.to_s }
+    Warning.singleton_class.prepend(mod)
+    yield
+    captured
+  ensure
+    $VERBOSE = original
   end
 
   test "open uses the default root span name when none is given" do
