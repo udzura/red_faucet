@@ -51,6 +51,19 @@ class Sample
     release.pop
     1
   end
+
+  # Calls a core-internal Ruby method (Array#last, defined at
+  # "<internal:array>") and a C method (String#upcase). Used to verify that
+  # trace_all_app_methods mode excludes both kinds of built-in.
+  def uses_builtins
+    [1, 2, 3].last
+    "z".upcase
+  end
+
+  # define_method-defined: cannot be targeted by TracePoint#enable(target:),
+  # but is still captured by the global :call hook in trace_all_app_methods
+  # mode.
+  define_method(:defined_via_dm) { 42 }
 end
 
 class OrangeTapTest < Test::Unit::TestCase
@@ -65,6 +78,7 @@ class OrangeTapTest < Test::Unit::TestCase
     # C-method opt-in is a global flag / registry; reset it and drop any C
     # entries so these tests don't leak into the ISeq-based ones.
     OrangeTap.config.trace_c_methods = false
+    OrangeTap.config.trace_all_app_methods = false
     OrangeTap.untrace_method(String.instance_method(:upcase), Array.instance_method(:sort))
     @tmpdir = Dir.mktmpdir("orange_tap_test")
     OrangeTap.config.output_dir = @tmpdir
@@ -72,6 +86,7 @@ class OrangeTapTest < Test::Unit::TestCase
 
   def teardown
     OrangeTap.config.trace_c_methods = false
+    OrangeTap.config.trace_all_app_methods = false
     OrangeTap.untrace_method(String.instance_method(:upcase), Array.instance_method(:sort))
     FileUtils.remove_entry(@tmpdir) if @tmpdir && File.directory?(@tmpdir)
   end
@@ -301,6 +316,82 @@ class OrangeTapTest < Test::Unit::TestCase
 
     assert_match(/singleton C method/, warning)
     assert(OrangeTap.default_registry.c_targets.empty?)
+  end
+
+  test "trace_all_app_methods: app methods are traced without explicit registration" do
+    OrangeTap.config.trace_all_app_methods = true
+
+    path = OrangeTap.open { Sample.new.instance_method_a }
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "Sample#instance_method_a")
+  end
+
+  test "trace_all_app_methods: built-in methods (C and core-internal) are excluded" do
+    OrangeTap.config.trace_all_app_methods = true
+
+    path = OrangeTap.open { Sample.new.uses_builtins }
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "Sample#uses_builtins")
+    # String#upcase is C (never fires :call); Array#last is defined at
+    # "<internal:array>" (fires :call, excluded by the "<" path rule).
+    assert_not_include(names, "String#upcase")
+    assert_not_include(names, "Array#last")
+  end
+
+  test "trace_all_app_methods: define_method-defined methods are traced" do
+    OrangeTap.config.trace_all_app_methods = true
+
+    path = OrangeTap.open { Sample.new.defined_via_dm }
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    assert_include(names, "Sample#defined_via_dm")
+  end
+
+  test "trace_all_app_methods: OrangeTap's own code is not traced and writes valid output" do
+    OrangeTap.config.trace_all_app_methods = true
+
+    path = OrangeTap.open { Sample.new.instance_method_a }
+    document = read_document(path)
+    names = all_spans(document).map { |s| s["name"] }
+
+    assert(document.key?("resourceSpans"))
+    assert(names.none? { |n| n.include?("OrangeTap") },
+           "expected no OrangeTap-internal spans, got: #{names.inspect}")
+  end
+
+  test "trace_all_app_methods: nested calls produce correctly nested spans" do
+    OrangeTap.config.trace_all_app_methods = true
+
+    path = OrangeTap.open { Sample.new.recursive(2) }
+    spans = all_spans(read_document(path)).select { |s| s["name"] == "Sample#recursive" }
+
+    assert_equal(3, spans.size)
+    by_id = spans.each_with_object({}) { |s, h| h[s["spanId"]] = s }
+    root = spans.find { |s| !by_id.key?(s["parentSpanId"]) }
+    refute_nil(root)
+    assert_equal(1, spans.count { |s| s["parentSpanId"] == root["spanId"] })
+  end
+
+  test "trace_all_app_methods: supersedes explicit per-method registration" do
+    # Register only instance_method_a, but the mode should capture others too.
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
+    OrangeTap.config.trace_all_app_methods = true
+
+    path = OrangeTap.open do
+      sample = Sample.new
+      sample.instance_method_a
+      sample.not_traced_method
+    end
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+
+    # not_traced_method was never registered, yet the global mode still traces
+    # it, and instance_method_a is not double-counted.
+    assert_include(names, "Sample#not_traced_method")
+    assert_equal(1, names.count("Sample#instance_method_a"))
+  ensure
+    OrangeTap.untrace_method(Sample.instance_method(:instance_method_a))
   end
 
   def capture_warning

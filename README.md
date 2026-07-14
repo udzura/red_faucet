@@ -46,7 +46,9 @@ at once) works without any extra bookkeeping.
   Block-based method bodies (`define_method`, `define_singleton_method`) have
   an ISeq of type `:block`, which `TracePoint#enable(target:)` cannot target
   and raises `ArgumentError` — attempting to trace one will fail at `open`
-  time, not at `trace_method` time.
+  time, not at `trace_method` time. (The
+  [trace-all-application-methods mode](#tracing-all-application-methods-opt-in)
+  captures these, since it uses a global hook rather than a per-ISeq target.)
 - **C-implemented methods, unless explicitly opted in.** Methods with no Ruby
   ISeq are rejected by default. They can be traced via a global hook by
   setting `config.trace_c_methods = true`, at a process-wide performance cost
@@ -132,6 +134,43 @@ Output location is configurable:
 ```ruby
 OrangeTap.config.output_dir = "/path/to/traces"
 ```
+
+### Tracing all application methods (opt-in)
+
+Instead of registering methods one by one, you can trace **every non-builtin
+Ruby method call** in the process by enabling a single flag before opening a
+session:
+
+```ruby
+OrangeTap.config.trace_all_app_methods = true
+
+OrangeTap.open("request") do
+  # every application (and gem) method called here is captured automatically
+  MyApp.handle(request)
+end
+```
+
+In this mode a session installs one global `:call`/`:return` `TracePoint` (no
+`target:`) and decides what to keep by the **definition path** of each called
+method:
+
+- **Excluded:** Ruby core internals (`<internal:...>`) and the standard library
+  (under Ruby's `rubylibdir`/`rubyarchdir`), plus OrangeTap's own code.
+- **Excluded automatically:** all C-implemented methods (`String#upcase`,
+  `Array#each`, `Integer#+`, …) — `TracePoint(:call)` never fires for them.
+- **Traced:** everything else, i.e. your application code **and gems**.
+
+Because it needs no ISeq target, this mode also captures methods defined via
+`define_method` / `define_singleton_method`, which the per-method
+`trace_method` API cannot target.
+
+When enabled, this mode **supersedes** explicit `trace_method` registration:
+per-method (and C-method opt-in) hooks are not installed for that session.
+
+> **Performance warning:** the hook fires on **every Ruby method call in the
+> process**, running a (memoized) path check each time. This is the heaviest
+> mode OrangeTap offers — use it for focused debugging sessions, not always-on
+> production tracing. Concurrent sessions each add their own global hook.
 
 ### Tracing C-implemented methods (opt-in)
 

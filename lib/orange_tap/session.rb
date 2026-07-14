@@ -30,25 +30,20 @@ module OrangeTap
 
       @queue = Thread::Queue.new
 
-      # One TracePoint per target ISeq: whether a single TracePoint can
-      # safely enable(target:) more than one ISeq is version-dependent, so
-      # each ISeq gets its own TracePoint instance to enable/disable. Entries
-      # are [tracepoint, iseq]; a nil iseq marks the global C-method hook,
-      # which is enabled without a target.
-      @tracepoint_targets = @registry.targets.map { |iseq| [build_tracepoint(@queue), iseq] }
-
-      # Opt-in: a single global :c_call/:c_return TracePoint for any registered
-      # C methods, filtered inside the hook. Only added when there is at least
-      # one C method to trace, so the default path keeps zero C-call overhead.
-      c_targets = @registry.c_targets
-      @tracepoint_targets << [build_c_tracepoint(@queue, c_targets), nil] unless c_targets.empty?
-
+      # Start the worker before building the TracePoints so its Thread can be
+      # captured by the global app hook (which must skip the worker's own
+      # calls). Tracing is not active yet, so nothing the worker does now is
+      # recorded.
       ctx = Worker::Context.new(
         queue: @queue, config: @config, trace_id: trace_id,
         start_mono_ns: start_mono_ns, start_unix_ns: start_unix_ns,
         session_name: session_name
       )
       @worker_thread = Thread.new(ctx) { |worker_ctx| Worker.new(worker_ctx).run }
+
+      # Entries are [tracepoint, iseq]; a nil iseq marks a global (targetless)
+      # hook, which is enabled without a target: below.
+      @tracepoint_targets = build_tracepoint_targets
 
       @tracepoint_targets.each { |tp, iseq| iseq ? tp.enable(target: iseq) : tp.enable }
       self
@@ -70,6 +65,27 @@ module OrangeTap
     end
 
     private
+
+    # Global "trace all app methods" mode supersedes per-method registration:
+    # a single :call/:return hook records every non-builtin Ruby method call.
+    # Otherwise, use the registry's per-ISeq hooks plus the optional global
+    # C-method hook. One TracePoint per target ISeq: whether a single
+    # TracePoint can safely enable(target:) more than one ISeq is
+    # version-dependent, so each ISeq gets its own instance.
+    def build_tracepoint_targets
+      if @config.trace_all_app_methods
+        return [[build_global_app_tracepoint(@queue, BuiltinFilter.new, @worker_thread), nil]]
+      end
+
+      targets = @registry.targets.map { |iseq| [build_tracepoint(@queue), iseq] }
+
+      # Opt-in: a single global :c_call/:c_return TracePoint for any registered
+      # C methods, filtered inside the hook. Only added when there is at least
+      # one C method to trace, so the default path keeps zero C-call overhead.
+      c_targets = @registry.c_targets
+      targets << [build_c_tracepoint(@queue, c_targets), nil] unless c_targets.empty?
+      targets
+    end
 
     def build_tracepoint(queue)
       TracePoint.new(:call, :return) do |tp|
@@ -96,6 +112,28 @@ module OrangeTap
 
         queue << Event.new(
           type: tp.event == :c_call ? :call : :return,
+          thread_id: Thread.current.object_id,
+          method_id: tp.method_id,
+          defined_class: tp.defined_class,
+          timestamp_ns: Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)
+        )
+      end
+    end
+
+    # Global hook for the trace_all_app_methods mode. Fires on EVERY Ruby
+    # method call in the process (C methods never fire :call). Two cheap
+    # guards run first: skip the worker's own thread (so its bookkeeping and
+    # JSON writing are never traced, avoiding a feedback loop), and skip
+    # built-in definition paths via the memoized filter. TracePoint suppresses
+    # its own re-entry, so the Ruby calls in this body (filter.app_method?)
+    # do not recurse.
+    def build_global_app_tracepoint(queue, filter, worker_thread)
+      TracePoint.new(:call, :return) do |tp|
+        next if Thread.current == worker_thread
+        next unless filter.app_method?(tp.path)
+
+        queue << Event.new(
+          type: tp.event,
           thread_id: Thread.current.object_id,
           method_id: tp.method_id,
           defined_class: tp.defined_class,
