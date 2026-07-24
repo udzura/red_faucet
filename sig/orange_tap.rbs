@@ -1,4 +1,48 @@
 module OrangeTap
   VERSION: String
-  # See the writing guide of rbs: https://github.com/ruby/rbs#guides
+
+  class Error < StandardError
+  end
+
+  class AlreadyOpenError < Error
+  end
+
+  class NotOpenError < Error
+  end
+
+  class UntraceableMethodError < Error
+  end
+
+  # A Method/UnboundMethod, or a "Foo#bar" / "Foo.bar" notation String.
+  type method_obj = Method | UnboundMethod | String
+
+  def self.new: (**untyped opts) -> Session
+
+  def self.default_registry: () -> MethodRegistry
+
+  def self.config: () -> Config
+
+  def self.trace_method: (*method_obj method_objs) -> void
+
+  def self.untrace_method: (*method_obj method_objs) -> void
+
+  def self.trace_all_instance_methods: (Class klass) -> void
+
+  # Block form returns the output path; blockless form returns the Session.
+  def self.open: (?String? name) ?{ () -> void } -> (String | Session)
+
+  # Runs the block in a single session, applying config_overrides for its
+  # duration (restored afterwards, even on error) and delivering the output
+  # path to on_output on both success and failure. Returns the path on success.
+  def self.record: (?String? name, ?on_output: (^(String?) -> void)?, **untyped config_overrides) { () -> void } -> String?
+
+  class Config
+    attr_accessor output_dir: String
+    attr_accessor service_name: String
+    attr_accessor otel_converter: untyped
+    attr_accessor trace_c_methods: bool
+    attr_accessor trace_all_app_methods: bool
+
+    def initialize: () -> void
+  end
 end

@@ -67,4 +67,52 @@ module OrangeTap
       raise
     end
   end
+
+  # A batteries-included wrapper around a single session, meant for the
+  # common "measure this block once" case (e.g. a Rails around_action):
+  #
+  #   OrangeTap.record("checkout", trace_all_app_methods: true,
+  #                    on_output: ->(path) { Rails.logger.info(path) }) { do_work }
+  #
+  # It handles the two things every caller otherwise has to re-implement by
+  # hand around #open:
+  #
+  # * config_overrides are applied for the duration of the block and restored
+  #   afterwards, even on error. OrangeTap.config is a process-global
+  #   singleton, so a leaked `trace_all_app_methods = true` would keep every
+  #   later session in the heaviest mode; this guarantees it is reset.
+  # * on_output is called with the written JSON path in the ensure, so the
+  #   path is delivered on BOTH success and failure. (Block form #open cannot
+  #   return the path when the block raises.) The trace file is written either
+  #   way, since the worker drains on stop.
+  #
+  # Returns the output path on success; re-raises the original error on
+  # failure (an on_output that raises is swallowed so it never masks it).
+  def record(name = nil, on_output: nil, **config_overrides)
+    previous = config_overrides.to_h { |key, _| [key, config.public_send(key)] }
+    config_overrides.each { |key, value| config.public_send("#{key}=", value) }
+
+    tape = new
+    tape.open(name)
+    path = nil
+    begin
+      yield
+      path = tape.stop
+    rescue Exception # rubocop:disable Lint/RescueException
+      path = begin
+        tape.stop
+      rescue StandardError
+        nil
+      end
+      raise
+    ensure
+      previous.each { |key, value| config.public_send("#{key}=", value) }
+      begin
+        on_output&.call(path)
+      rescue StandardError
+        nil
+      end
+    end
+    path
+  end
 end

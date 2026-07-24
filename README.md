@@ -115,6 +115,33 @@ tape.open("checkout-flow")
 tape.stop
 ```
 
+### `record`: measure a block with config and error handling taken care of
+
+`OrangeTap.record` wraps a single session for the common "measure this block
+once" case (e.g. a Rails `around_action`). Compared to `open`, it handles two
+things every caller otherwise re-implements by hand:
+
+- **`config_overrides`** are applied for the duration of the block and
+  restored afterwards, *even on error*. `OrangeTap.config` is a process-global
+  singleton, so a leaked `trace_all_app_methods = true` would keep every later
+  session in the heaviest mode — `record` guarantees it is reset.
+- **`on_output`** is called with the written JSON path in an `ensure`, so you
+  receive the path on **both success and failure**. (Block-form `open` cannot
+  return the path when the block raises.) The trace file is written either way,
+  since the worker drains on `stop`.
+
+```ruby
+OrangeTap.record(
+  "checkout-flow",
+  trace_all_app_methods: true,                       # applied, then restored
+  on_output: ->(path) { Rails.logger.info("OrangeTap: #{path}") }
+) do
+  MyApp.handle(request)
+end
+# => output path on success; the original error is re-raised on failure
+#    (an on_output that itself raises is swallowed so it never masks it)
+```
+
 Other registration entry points:
 
 ```ruby
