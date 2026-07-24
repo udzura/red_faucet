@@ -496,4 +496,57 @@ class OrangeTapTest < Test::Unit::TestCase
     names = all_spans(read_document(path)).map { |s| s["name"] }
     assert_not_include(names, "Sample#instance_method_a")
   end
+
+  test "record returns the output path and applies config_overrides during the block" do
+    assert_equal(false, OrangeTap.config.trace_all_app_methods)
+
+    path = OrangeTap.record(trace_all_app_methods: true) { Sample.new.defined_via_dm }
+
+    assert_kind_of(String, path)
+    assert(File.exist?(path))
+    names = all_spans(read_document(path)).map { |s| s["name"] }
+    # define_method-defined methods are only captured in trace_all_app_methods
+    # mode, so their presence proves the override was in effect for the block.
+    assert_include(names, "Sample#defined_via_dm")
+    # ...and the process-global config is restored afterwards.
+    assert_equal(false, OrangeTap.config.trace_all_app_methods)
+  end
+
+  test "record restores config_overrides even when the block raises" do
+    assert_raise(RuntimeError) do
+      OrangeTap.record(trace_all_app_methods: true) { raise "boom" }
+    end
+
+    assert_equal(false, OrangeTap.config.trace_all_app_methods)
+  end
+
+  test "record delivers the output path to on_output on both success and failure" do
+    OrangeTap.trace_method(Sample.instance_method(:instance_method_a))
+
+    captured = []
+    path = OrangeTap.record(on_output: ->(p) { captured << p }) { Sample.new.instance_method_a }
+    assert_equal([path], captured)
+    assert(File.exist?(path))
+
+    # On failure the trace file is still written, so on_output receives its
+    # path; the original error is re-raised.
+    captured = []
+    assert_raise(RuntimeError) do
+      OrangeTap.record(on_output: ->(p) { captured << p }) do
+        Sample.new.instance_method_a
+        raise "boom"
+      end
+    end
+    assert_equal(1, captured.size)
+    assert_kind_of(String, captured.first)
+    assert(File.exist?(captured.first))
+  end
+
+  test "record swallows on_output errors so they never mask the block's exception" do
+    error = assert_raise(RuntimeError) do
+      OrangeTap.record(on_output: ->(_p) { raise "logging failed" }) { raise "boom" }
+    end
+
+    assert_equal("boom", error.message)
+  end
 end
